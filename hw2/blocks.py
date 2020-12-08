@@ -84,6 +84,7 @@ class LeakyReLU(Block):
         # DONE: Implement the LeakyReLU operation.
         # ====== YOUR CODE: ======
         out = torch.max(x, self.alpha * x)
+        self.grad_cache["forward"] = out
         # ========================
 
         self.grad_cache["x"] = x
@@ -98,7 +99,7 @@ class LeakyReLU(Block):
 
         # DONE: Implement gradient w.r.t. the input x
         # ====== YOUR CODE: ======
-        dx = dout * self.forward(x) * x.pow_(-1)
+        dx = dout * self.grad_cache["forward"] * x.pow_(-1)
         # ========================
 
         return dx
@@ -144,7 +145,7 @@ class Sigmoid(Block):
         #  Save whatever you need into grad_cache.
         # ====== YOUR CODE: ======
         out = 1 / (1 + torch.exp_(-x))
-        self.grad_cache["x"] = x
+        self.grad_cache["forward"] = out
         # ========================
 
         return out
@@ -157,8 +158,8 @@ class Sigmoid(Block):
 
         # DONE: Implement gradient w.r.t. the input x
         # ====== YOUR CODE: ======
-        x = self.grad_cache["x"]
-        dx = dout * self.forward(x) * (1 - self.forward(x))
+        forward = self.grad_cache["forward"]
+        dx = dout * forward * (1 - forward)
         # ========================
 
         return dx
@@ -312,7 +313,6 @@ class CrossEntropyLoss(Block):
         # DONE: Compute the cross entropy loss using the last formula from the
         #  notebook (i.e. directly using the class scores).
         # ====== YOUR CODE: ======
-
         loss = torch.log(torch.sum(torch.exp(x), dim=1)) - x[torch.arange(N), y]
         loss = torch.mean(loss)
         # ========================
@@ -355,19 +355,24 @@ class Dropout(Block):
         self.p = p
 
     def forward(self, x, **kw):
-        # TODO: Implement the dropout forward pass.
+        # DONE: Implement the dropout forward pass.
         #  Notice that contrary to previous blocks, this block behaves
         #  differently a according to the current training_mode (train/test).
         # ====== YOUR CODE: ======
-        raise NotImplementedError()
+        self.grad_cache["dice_results"] = torch.rand(*x.shape) < self.p
+        out = torch.where(self.grad_cache["dice_results"], torch.zeros(*x.shape), x)
+        if not self.training_mode:
+            out = (1 - self.p) * x
         # ========================
 
         return out
 
     def backward(self, dout):
-        # TODO: Implement the dropout backward pass.
+        # DONE: Implement the dropout backward pass.
         # ====== YOUR CODE: ======
-        raise NotImplementedError()
+        dx = torch.where(self.grad_cache["dice_results"], torch.zeros(*dout.shape), dout)
+        if not self.training_mode:
+            dx = (1 - self.p) * dout
         # ========================
 
         return dx
@@ -488,6 +493,8 @@ class MLP(Block):
         for layer_num, num_hidden_layer_features in enumerate(hidden_features):
             blocks.append(Linear(num_prev_layer_out_features, num_hidden_layer_features))
             blocks.append(activation_module())
+            if dropout>0:
+                blocks.append(Dropout(p=dropout))
             num_prev_layer_out_features = num_hidden_layer_features
         blocks.append(Linear(hidden_features[-1], num_classes))
         # ========================
